@@ -18,10 +18,14 @@ jobs:
       - run: black --check .
       - run: mypy services/common services/auditlog services/custody stackctl
       - run: pytest
-      - run: make demo | tee demo.out
-      - run: grep -E "RECON: ALL MATCHED|AUDIT: CHAIN INTACT" demo.out
-      - run: make demo-failures | tee failures.out
-      - run: grep -E "RECON: MISMATCH|UNWIND: COMPLETE|RESTRICTED: SURFACED|COUPON: NO DOUBLE PAYMENT|AUDIT: CHAIN INTACT" failures.out
+      - name: demo
+        run: |
+          make demo | tee demo.out
+          grep -E "RECON: ALL MATCHED|AUDIT: CHAIN INTACT" demo.out
+      - name: failure demos
+        run: |
+          make demo-failures | tee failures.out
+          grep -E "RECON: MISMATCH|UNWIND: COMPLETE|RESTRICTED: SURFACED|COUPON: NO DOUBLE PAYMENT|AUDIT: CHAIN INTACT" failures.out
       - name: banned vocabulary
         run: |
           if grep -RInE "revolutionary|seamless|game-changing|unlock|enterprise-grade|bank-grade|battle-tested" README.md ARCHITECTURE.md LIMITATIONS.md ROADMAP.md SECURITY.md CONTRIBUTING.md services stackctl contracts console; then
