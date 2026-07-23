@@ -27,7 +27,8 @@ services:
         condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
     command: >
-      "forge install foundry-rs/forge-std --no-commit || true;
+      "rm -rf lib/forge-std;
+      git clone --depth 1 https://github.com/foundry-rs/forge-std lib/forge-std;
       export ANVIL_KEY_0=$$(cast wallet private-key
       --mnemonic 'test test test test test test test test test test test junk'
       --mnemonic-index 0);
