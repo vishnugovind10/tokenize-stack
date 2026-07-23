@@ -18,6 +18,7 @@ services:
       retries: 30
   deployer:
     image: ghcr.io/foundry-rs/foundry:latest
+    user: "0:0"
     working_dir: /repo/contracts
     volumes:
       - .:/repo

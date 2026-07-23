@@ -42,13 +42,10 @@ contract DvPEscrow {
         cash = cashToken;
     }
 
-    function lockAsset(
-        bytes32 tradeId,
-        address buyer,
-        uint256 assetAmount,
-        uint256 cashAmount,
-        uint256 expiry
-    ) external nonReentrant {
+    function lockAsset(bytes32 tradeId, address buyer, uint256 assetAmount, uint256 cashAmount, uint256 expiry)
+        external
+        nonReentrant
+    {
         require(trades[tradeId].state == State.None, "exists");
         require(expiry > block.timestamp, "expiry");
         trades[tradeId] = Trade(msg.sender, buyer, assetAmount, cashAmount, expiry, State.AssetLocked);
