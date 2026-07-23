@@ -104,7 +104,8 @@ def run_failures() -> StackResult:
     wait_trade_state(str(restricted["trade_id"]), "FAILED_SETTLE")
     chain_warp(3700)
     wait_trade_state(str(restricted["trade_id"]), "UNWOUND")
-    coupon = post_json(f"{BASE_URLS['settlement']}/coupon", {"interrupt_after": 2})
+    post_json(f"{BASE_URLS['settlement']}/coupon", {"interrupt_after": 2})
+    coupon = post_json(f"{BASE_URLS['settlement']}/coupon", {"interrupt_after": None})
     report_after = get_json(f"{BASE_URLS['recon']}/report")
     audit = get_json(f"{BASE_URLS['audit']}/verify")
     return StackResult(

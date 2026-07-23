@@ -22,7 +22,8 @@ This repository demonstrates architecture and testable interfaces. It is not aud
 
 ## Coupons
 
-- Coupon demo markers remain service-local until the distributor path is routed through custody.
+- Coupon rounds use a single local distribution model.
+- Does not implement payment calendars, withholding tax, record dates, or external paying-agent files.
 
 ## Contracts
 

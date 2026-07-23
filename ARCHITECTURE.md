@@ -76,14 +76,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Issuer
+    participant Custody
     participant Distributor
     participant Holder
     participant Audit
-    Issuer->>Distributor: fund coupon round (P3)
-    Distributor->>Holder: pay batch (P3)
+    Issuer->>Custody: approve distributor funding
+    Custody->>Distributor: fund coupon round
+    Issuer->>Custody: approve coupon batch
+    Custody->>Distributor: pay batch
     Distributor--xHolder: injected interruption
     Distributor->>Audit: record cursor
-    Distributor->>Holder: resume from cursor
+    Custody->>Distributor: resume from cursor
     Distributor->>Audit: record no duplicate payment
 ```
 
@@ -93,4 +96,4 @@ sequenceDiagram
 - The console is read-only.
 - The audit verifier detects missing, edited, or reordered records in the JSONL chain.
 - The local signer interface is the replacement point for real custody infrastructure.
-- Coupon markers are local service behavior until the distributor is wired through custody in P3.
+- Coupon funding and batch distribution are routed through custody and verified against distributor cursor and holder cash balances.

@@ -24,6 +24,8 @@ deployment: Deployment | None = None
 w3: Web3 | None = None
 escrow_contract: Contract | None = None
 asset_contract: Contract | None = None
+cash_contract: Contract | None = None
+distributor_contract: Contract | None = None
 store: SettlementStore | None = None
 stop_poller = threading.Event()
 poller_thread: threading.Thread | None = None
@@ -47,11 +49,14 @@ class CouponIn(BaseModel):
 
 @app.on_event("startup")
 def load_deployment() -> None:
-    global deployment, w3, escrow_contract, asset_contract, store, poller_thread
+    global deployment, w3, escrow_contract, asset_contract, cash_contract, distributor_contract
+    global store, poller_thread
     deployment = wait_for_deployment()
     w3 = chain.get_w3(deployment)
     escrow_contract = chain.escrow(w3, deployment)
     asset_contract = chain.asset(w3, deployment)
+    cash_contract = chain.cash(w3, deployment)
+    distributor_contract = chain.distributor(w3, deployment)
     store = SettlementStore()
     stop_poller.clear()
     poller_thread = threading.Thread(target=_poll_loop, daemon=True)
@@ -152,26 +157,83 @@ def list_trades() -> list[dict[str, object]]:
 def coupon(coupon_in: CouponIn) -> dict[str, object]:
     ctx = _ctx()
     holders = _holders_with_assets(ctx["deployment"], ctx["asset"])
+    current_round = ctx["store"].get_meta_int("coupon_round", 0)
+    if current_round > 0 and _coupon_cursor(ctx, current_round) < len(holders):
+        round_id = current_round
+    else:
+        round_id = current_round + 1
+        ctx["store"].set_meta("coupon_round", str(round_id))
+    holder_addresses = [_address(ctx["deployment"], holder) for holder in holders]
+    unpaid_at_start = {
+        holder
+        for holder, address in zip(holders, holder_addresses, strict=True)
+        if not bool(ctx["distributor"].functions.paid(round_id, address).call())
+    }
+    expected = {
+        holder: int(ctx["asset"].functions.balanceOf(_address(ctx["deployment"], holder)).call())
+        // 100
+        for holder in unpaid_at_start
+    }
+    before = _cash_balances(ctx["deployment"], ctx["cash"], holders)
+    total_coupon = sum(expected.values())
+    if total_coupon > 0 and _coupon_cursor(ctx, round_id) == 0:
+        _execute(
+            f"coupon-{round_id}",
+            "issuer",
+            "transfer_cash",
+            ctx["deployment"].addresses["CouponDistributor"],
+            total_coupon,
+            {"round_id": round_id},
+        )
     interrupted = False
-    cursor = 0
-    while cursor < len(holders):
-        holder = holders[cursor]
-        if (
-            coupon_in.interrupt_after is not None
-            and cursor == coupon_in.interrupt_after
-            and not interrupted
-        ):
+    while _coupon_cursor(ctx, round_id) < len(holders):
+        cursor_before = _coupon_cursor(ctx, round_id)
+        if coupon_in.interrupt_after is not None and cursor_before >= coupon_in.interrupt_after:
             interrupted = True
-            post_event("coupon", "system", "batch_interrupted", {"cursor": cursor})
-            continue
-        if ctx["store"].mark_coupon_paid(holder, 100):
-            post_event("coupon", "issuer", "paid", {"holder": holder, "amount": 100})
-        cursor += 1
+            post_event("coupon", "system", "batch_interrupted", {"cursor": cursor_before})
+            break
+        _execute(
+            f"coupon-{round_id}",
+            "issuer",
+            "distribute_coupon",
+            "distributor",
+            0,
+            {"round_id": round_id, "holders": holder_addresses, "batch_size": 2},
+        )
+    after = _cash_balances(ctx["deployment"], ctx["cash"], holders)
+    cursor = _coupon_cursor(ctx, round_id)
+    if interrupted:
+        return {
+            "round_id": round_id,
+            "paid": _paid_count(ctx, round_id, holder_addresses),
+            "cursor": cursor,
+            "interrupted": interrupted,
+            "no_double_payment": False,
+        }
+    post_reinvoke = _cash_balances(ctx["deployment"], ctx["cash"], holders)
+    if holders:
+        _execute(
+            f"coupon-{round_id}",
+            "issuer",
+            "distribute_coupon",
+            "distributor",
+            0,
+            {"round_id": round_id, "holders": holder_addresses, "batch_size": 2},
+        )
+    final = _cash_balances(ctx["deployment"], ctx["cash"], holders)
+    deltas_match = all(
+        after[holder] - before[holder] == expected[holder] for holder in unpaid_at_start
+    )
+    no_reinvoke_movement = final == post_reinvoke
+    no_double_payment = deltas_match and no_reinvoke_movement
+    for holder in sorted(unpaid_at_start):
+        post_event("coupon", "issuer", "paid", {"holder": holder, "amount": expected[holder]})
     return {
-        "paid": ctx["store"].coupon_count(),
+        "round_id": round_id,
+        "paid": _paid_count(ctx, round_id, holder_addresses),
         "cursor": cursor,
         "interrupted": interrupted,
-        "no_double_payment": True,
+        "no_double_payment": no_double_payment,
     }
 
 
@@ -313,6 +375,31 @@ def _holders_with_assets(deployment_obj: Deployment, asset: Contract) -> list[st
     return holders
 
 
+def _address(deployment_obj: Deployment, persona: str) -> str:
+    return Web3.to_checksum_address(deployment_obj.personas[persona])
+
+
+def _cash_balances(
+    deployment_obj: Deployment, cash: Contract, holders: list[str]
+) -> dict[str, int]:
+    return {
+        holder: int(cash.functions.balanceOf(_address(deployment_obj, holder)).call())
+        for holder in holders
+    }
+
+
+def _coupon_cursor(ctx: dict[str, Any], round_id: int) -> int:
+    return int(ctx["distributor"].functions.cursor(round_id).call())
+
+
+def _paid_count(ctx: dict[str, Any], round_id: int, holder_addresses: list[str]) -> int:
+    return sum(
+        1
+        for address in holder_addresses
+        if bool(ctx["distributor"].functions.paid(round_id, address).call())
+    )
+
+
 def _post_json(url: str, payload: dict[str, object]) -> dict[str, object]:
     data = json.dumps(payload).encode("utf-8")
     request = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
@@ -332,6 +419,8 @@ def _ctx() -> dict[str, Any]:
         or w3 is None
         or escrow_contract is None
         or asset_contract is None
+        or cash_contract is None
+        or distributor_contract is None
         or store is None
     ):
         raise RuntimeError("settlement service not initialized")
@@ -340,5 +429,7 @@ def _ctx() -> dict[str, Any]:
         "w3": w3,
         "escrow": escrow_contract,
         "asset": asset_contract,
+        "cash": cash_contract,
+        "distributor": distributor_contract,
         "store": store,
     }

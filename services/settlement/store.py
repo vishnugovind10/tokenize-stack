@@ -70,18 +70,12 @@ class SettlementStore:
                 value TEXT NOT NULL
             )
             """)
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS coupon_paid (
-                holder TEXT PRIMARY KEY,
-                amount INTEGER NOT NULL
-            )
-            """)
         self.conn.commit()
 
     def reset(self) -> None:
         self.conn.execute("DELETE FROM trades")
-        self.conn.execute("DELETE FROM coupon_paid")
         self.set_meta("escrow_cursor", "0")
+        self.set_meta("coupon_round", "0")
         self.conn.commit()
 
     def insert_trade(self, trade: TradeRow) -> TradeRow:
@@ -165,20 +159,6 @@ class SettlementStore:
             (key, value),
         )
         self.conn.commit()
-
-    def mark_coupon_paid(self, holder: str, amount: int) -> bool:
-        try:
-            self.conn.execute(
-                "INSERT INTO coupon_paid (holder, amount) VALUES (?, ?)",
-                (holder, amount),
-            )
-            self.conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
-
-    def coupon_count(self) -> int:
-        return int(self.conn.execute("SELECT COUNT(*) AS n FROM coupon_paid").fetchone()["n"])
 
     def close(self) -> None:
         self.conn.close()

@@ -72,7 +72,7 @@ jobs:
           CASH=$(docker compose exec -T custody python -c 'import json; print(json.load(open("/deployment/deployment.json"))["addresses"]["CashToken"])')
           INVESTOR_A=$(docker compose exec -T custody python -c 'import json; print(json.load(open("/deployment/deployment.json"))["personas"]["investor-a"])')
           BALANCE=$(docker compose exec -T anvil cast call "$CASH" "balanceOf(address)(uint256)" "$INVESTOR_A" --rpc-url http://localhost:8545 | awk '{print $1}')
-          test "$BALANCE" = "496000"
+          test "$BALANCE" = "498600"
       - name: compose logs
         if: failure()
         run: docker compose logs

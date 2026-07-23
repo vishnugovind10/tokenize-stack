@@ -29,6 +29,7 @@ registry_contract: Contract | None = None
 asset_contract: Contract | None = None
 cash_contract: Contract | None = None
 escrow_contract: Contract | None = None
+distributor_contract: Contract | None = None
 store: CustodyStore | None = None
 
 
@@ -38,13 +39,15 @@ class ApprovalIn(BaseModel):
 
 @app.on_event("startup")
 def load_deployment() -> None:
-    global deployment, w3, registry_contract, asset_contract, cash_contract, escrow_contract, store
+    global deployment, w3, registry_contract, asset_contract, cash_contract, escrow_contract
+    global distributor_contract, store
     deployment = wait_for_deployment()
     w3 = chain.get_w3(deployment)
     registry_contract = chain.registry(w3, deployment)
     asset_contract = chain.asset(w3, deployment)
     cash_contract = chain.cash(w3, deployment)
     escrow_contract = chain.escrow(w3, deployment)
+    distributor_contract = chain.distributor(w3, deployment)
     store = CustodyStore()
 
 
@@ -229,6 +232,7 @@ def _ctx() -> dict[str, Any]:
         or asset_contract is None
         or cash_contract is None
         or escrow_contract is None
+        or distributor_contract is None
         or store is None
     ):
         raise RuntimeError("custody service not initialized")
@@ -239,6 +243,7 @@ def _ctx() -> dict[str, Any]:
         "asset": asset_contract,
         "cash": cash_contract,
         "escrow": escrow_contract,
+        "distributor": distributor_contract,
         "store": store,
     }
 
@@ -270,6 +275,7 @@ def _broadcast(intent: Intent) -> str:
         custody["asset"],
         custody["cash"],
         custody["escrow"],
+        custody["distributor"],
     )
     receipt = asyncio.run(
         chain.send(custody["w3"], custody["deployment"], signer_for(intent.actor), tx_params)

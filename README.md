@@ -56,7 +56,7 @@ flowchart LR
 |---|---|---|
 | `contracts/` | Restricted asset, registry, demo cash token, DvP escrow, coupon distributor, Foundry deploy script | Audit, governance, upgrade planning, and deployment controls |
 | `services/custody/` | Policy tiers and approval model | Real key ceremonies, HSM/MPC integration, identity-bound approvals |
-| `services/settlement/` | SQLite DvP projection over the deployed escrow, failure states, auto-unwind path, local coupon marker | Multi-venue settlement, netting, on-chain coupon distributor wiring |
+| `services/settlement/` | SQLite DvP projection over the deployed escrow, failure states, auto-unwind path, custody-routed coupon batches | Multi-venue settlement, netting, production payment calendars |
 | `services/recon/` | Escrow-vs-settlement reconciliation report with mismatch markers | Counterparty statements, historical exception workflow |
 | `services/auditlog/` | Append-only JSONL records with service download and verifier endpoints | Durable retention, independent publication, operator separation |
 | `stackctl/` | Operator CLI for compose, stack demos, sim demos, audit verification, and chain warp | Production runbooks and access controls |

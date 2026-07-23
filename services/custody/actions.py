@@ -20,6 +20,7 @@ def build_transaction(
     asset_contract: Contract,
     cash_contract: Contract,
     escrow_contract: Contract,
+    distributor_contract: Contract,
 ) -> TxParams:
     actor = resolve_address(deployment, intent.actor)
     escrow_address = resolve_address(deployment, deployment.addresses["DvPEscrow"])
@@ -57,6 +58,13 @@ def build_transaction(
         return escrow_contract.functions.unwind(
             chain.trade_key(_required_str(intent, "trade_id"))
         ).build_transaction({"from": actor})
+    if intent.action == "distribute_coupon":
+        round_id = _required_int(intent, "round_id")
+        batch_size = _required_int(intent, "batch_size")
+        holders = _required_addresses(intent, deployment, "holders")
+        return distributor_contract.functions.distribute(
+            round_id, holders, batch_size
+        ).build_transaction({"from": actor})
     raise ValueError(f"unsupported custody action: {intent.action}")
 
 
@@ -72,3 +80,15 @@ def _required_int(intent: Intent, key: str) -> int:
     if not isinstance(value, int):
         raise ValueError(f"{intent.action} requires integer params.{key}")
     return value
+
+
+def _required_addresses(intent: Intent, deployment: Deployment, key: str) -> list[str]:
+    value = intent.params.get(key)
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{intent.action} requires non-empty list params.{key}")
+    addresses: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"{intent.action} requires string addresses in params.{key}")
+        addresses.append(resolve_address(deployment, item))
+    return addresses
