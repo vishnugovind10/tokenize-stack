@@ -11,6 +11,7 @@ import "../src/RestrictedAssetToken.sol";
 contract Deploy is Script {
     uint256 internal constant SUPPLY = 1_000_000;
     uint256 internal constant INVESTOR_CASH = 500_000;
+    uint256 internal constant UNDERFUNDED_CASH = 1_000;
 
     function run() external {
         address issuer = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
@@ -41,16 +42,38 @@ contract Deploy is Script {
         cash.transfer(investorB, INVESTOR_CASH);
         cash.transfer(investorC, INVESTOR_CASH);
         cash.transfer(investorD, INVESTOR_CASH);
-        cash.transfer(investorE, INVESTOR_CASH);
+        cash.transfer(investorE, UNDERFUNDED_CASH);
         vm.stopBroadcast();
 
-        string memory root = "root";
-        vm.serializeUint(root, "chain_id", block.chainid);
-        vm.serializeAddress(root, "ComplianceRegistry", address(registry));
-        vm.serializeAddress(root, "RestrictedAssetToken", address(asset));
-        vm.serializeAddress(root, "CashToken", address(cash));
-        vm.serializeAddress(root, "DvPEscrow", address(escrow));
-        string memory json = vm.serializeAddress(root, "CouponDistributor", address(distributor));
+        string memory json = string.concat(
+            '{"chain_id":',
+            vm.toString(block.chainid),
+            ',"rpc_url":"http://anvil:8545","addresses":{',
+            '"ComplianceRegistry":"',
+            vm.toString(address(registry)),
+            '","RestrictedAssetToken":"',
+            vm.toString(address(asset)),
+            '","CashToken":"',
+            vm.toString(address(cash)),
+            '","DvPEscrow":"',
+            vm.toString(address(escrow)),
+            '","CouponDistributor":"',
+            vm.toString(address(distributor)),
+            '"},"personas":{',
+            '"issuer":"',
+            vm.toString(issuer),
+            '","investor-a":"',
+            vm.toString(investorA),
+            '","investor-b":"',
+            vm.toString(investorB),
+            '","investor-c":"',
+            vm.toString(investorC),
+            '","investor-d":"',
+            vm.toString(investorD),
+            '","investor-e":"',
+            vm.toString(investorE),
+            '"}}'
+        );
         vm.writeJson(json, "out/deployment.json");
     }
 }
