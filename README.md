@@ -57,7 +57,7 @@ flowchart LR
 | `contracts/` | Restricted asset, registry, demo cash token, DvP escrow, coupon distributor, Foundry deploy script | Audit, governance, upgrade planning, and deployment controls |
 | `services/custody/` | Policy tiers and approval model | Real key ceremonies, HSM/MPC integration, identity-bound approvals |
 | `services/settlement/` | SQLite DvP projection over the deployed escrow, failure states, auto-unwind path, custody-routed coupon batches | Multi-venue settlement, netting, production payment calendars |
-| `services/recon/` | Escrow-vs-settlement reconciliation report with mismatch markers | Counterparty statements, historical exception workflow |
+| `services/recon/` | Chain, settlement SQLite, and custody-intent reconciliation with mismatch markers | Counterparty statements, historical exception workflow |
 | `services/auditlog/` | Append-only JSONL records with service download and verifier endpoints | Durable retention, independent publication, operator separation |
 | `stackctl/` | Operator CLI for compose, stack demos, sim demos, audit verification, and chain warp | Production runbooks and access controls |
 | `console/` | Read-only live console polling service APIs through nginx | Authentication, roles, write actions |
@@ -120,7 +120,7 @@ AUDIT: CHAIN INTACT
 | Failure-path runner | In progress for v0.2 | `python -m stackctl demo-failures` drives service APIs after compose startup |
 | Audit tamper detection | Implemented | `tests/test_auditlog.py` |
 | Custody policy evaluation | Implemented | `tests/test_policy.py` |
-| Reconciliation report | Implemented | `tests/test_scenarios.py` |
+| Reconciliation report | Chain/custody/settlement backed | `python -m stackctl demo-failures` shows mismatch then match after unwind |
 | Solidity contracts | Hardened in v0.2 build branch | Foundry project under `contracts/` |
 | HTTP services | Service-backed state and audit endpoints | FastAPI entry points under `services/` |
 | Template distribution | Manual setting required after first publish | GitHub repository setting |
@@ -132,7 +132,7 @@ AUDIT: CHAIN INTACT
 - `services/auditlog/`: append-only audit ingest and offline verifier.
 - `services/custody/`: policy engine, approval queue, and signer interface.
 - `services/settlement/`: trade state transitions and unwind handling.
-- `services/recon/`: three-way report generation.
+- `services/recon/`: chain, settlement, and custody-intent report generation.
 - `contracts/`: Solidity reference contracts and Foundry tests.
 - `console/`: read-only status UI.
 - `scenarios/`: declarative happy-path and failure-path scripts.

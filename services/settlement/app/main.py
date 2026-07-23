@@ -79,7 +79,11 @@ def health() -> dict[str, str]:
 
 @app.post("/reset")
 def reset() -> dict[str, object]:
-    _ctx()["store"].reset()
+    ctx = _ctx()
+    ctx["store"].reset()
+    ctx["store"].set_meta(
+        "reset_chain_ts", str(int(ctx["w3"].eth.get_block("latest")["timestamp"]))
+    )
     post_event("settlement", "system", "reset", {"trades": 0})
     return {"status": "reset", "trades": []}
 

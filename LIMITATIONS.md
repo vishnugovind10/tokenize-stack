@@ -17,7 +17,8 @@ This repository demonstrates architecture and testable interfaces. It is not aud
 
 ## Reconciliation
 
-- Compares local projections, chain-shaped state, and audit records.
+- Compares local projections, chain state, and audit records.
+- Reads the local custody intent database for demo evidence; it is not an independent custodian statement.
 - Does not ingest counterparty files, custodian files, or historical exception queues.
 
 ## Coupons

@@ -71,6 +71,16 @@ sequenceDiagram
     Recon-->>Settlement: mismatch cleared
 ```
 
+## Reconciliation
+
+Recon reads three local sources:
+
+- Chain state from escrow trade getters, token balances, and coupon distributor paid flags.
+- Settlement state from the SQLite projection.
+- Custody state from the persisted intent log.
+
+Rows are marked `MATCHED`, `MISMATCH`, or `UNEXPLAINED`. Settlement reset records the current chain timestamp so old local custody intents do not pollute the next demo run.
+
 ## Coupon Resume
 
 ```mermaid
