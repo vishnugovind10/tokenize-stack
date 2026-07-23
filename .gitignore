@@ -10,6 +10,7 @@ htmlcov/
 *.egg-info/
 .tokenize-stack-audit.jsonl
 chain.jsonl
+*.out
 node_modules/
 contracts/lib/
 dist/

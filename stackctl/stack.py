@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+from uuid import uuid4
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -134,6 +135,22 @@ def chain_warp(seconds: int) -> StackResult:
         "http://localhost:8545", {"jsonrpc": "2.0", "id": 2, "method": "evm_mine", "params": []}
     )
     return StackResult([f"CHAIN: WARPED {seconds} SECONDS", json.dumps(response, sort_keys=True)])
+
+
+def pay(actor: str, destination: str, amount: int) -> StackResult:
+    wait_ready()
+    response = post_json(
+        f"{BASE_URLS['custody']}/sign-intent",
+        {
+            "intent_id": f"pay-{uuid4().hex[:10]}",
+            "actor": actor,
+            "destination": destination,
+            "amount": amount,
+            "asset": "cash",
+            "action": "transfer_cash",
+        },
+    )
+    return StackResult([json.dumps(response, sort_keys=True)])
 
 
 def get_json(url: str) -> dict[str, object]:

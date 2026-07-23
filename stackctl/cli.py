@@ -67,6 +67,13 @@ def verify_audit(output: Annotated[Path | None, typer.Option("--output")] = None
         typer.echo(line)
 
 
+@app.command("pay")
+def pay(actor: str, destination: str, amount: int) -> None:
+    result = stack.pay(actor, destination, amount)
+    for line in result.lines:
+        typer.echo(line)
+
+
 @chain_app.command("warp")
 def chain_warp(seconds: int) -> None:
     result = stack.chain_warp(seconds)

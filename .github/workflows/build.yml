@@ -57,6 +57,22 @@ jobs:
         run: |
           python -m stackctl demo-failures | tee failures.out
           grep -E "RECON: MISMATCH|UNWIND: COMPLETE|RESTRICTED: SURFACED|RECON: ALL MATCHED|COUPON: NO DOUBLE PAYMENT|AUDIT: CHAIN INTACT" failures.out
+      - name: custody pay smoke
+        run: |
+          python -m stackctl pay issuer investor-a 1000 | tee pay_auto.out
+          grep -E '"status": "signed"' pay_auto.out
+          python -m stackctl pay issuer investor-a 125000 | tee pay_dual.out
+          grep -E '"status": "pending_approvals"' pay_dual.out
+          INTENT_ID=$(jq -r .intent_id pay_dual.out)
+          curl -fsS -X POST "http://localhost:8001/approvals/${INTENT_ID}/approve" \
+            -H "Content-Type: application/json" -d '{"approver":"ops-1"}' | tee approve_1.out
+          curl -fsS -X POST "http://localhost:8001/approvals/${INTENT_ID}/approve" \
+            -H "Content-Type: application/json" -d '{"approver":"ops-2"}' | tee approve_2.out
+          grep -E '"status":"approved_signed"|"status": "approved_signed"' approve_2.out
+          CASH=$(docker compose exec -T custody python -c 'import json; print(json.load(open("/deployment/deployment.json"))["addresses"]["CashToken"])')
+          INVESTOR_A=$(docker compose exec -T custody python -c 'import json; print(json.load(open("/deployment/deployment.json"))["personas"]["investor-a"])')
+          BALANCE=$(docker compose exec -T anvil cast call "$CASH" "balanceOf(address)(uint256)" "$INVESTOR_A" --rpc-url http://localhost:8545 | awk '{print $1}')
+          test "$BALANCE" = "626000"
       - name: compose logs
         if: failure()
         run: docker compose logs

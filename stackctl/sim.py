@@ -5,7 +5,7 @@ from pathlib import Path
 
 from services.common.audit import AuditChain, verify_records
 from services.common.models import Intent, RestrictionReason, Trade, TradeState
-from services.custody.policy import Policy
+from services.custody.policy import Policy, PolicyContext
 from services.recon.report import build_report
 
 PERSONAS = ["issuer", "investor-a", "investor-b", "investor-c", "investor-d", "investor-e"]
@@ -75,6 +75,47 @@ class Ledger:
         trade.state = TradeState.UNWOUND
 
 
+class _Call:
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def call(self) -> object:
+        return self.value
+
+
+class _SimRegistryFunctions:
+    def __init__(self, ledger: Ledger) -> None:
+        self.ledger = ledger
+
+    def canTransfer(self, actor: str, destination: str, amount: int) -> _Call:
+        return _Call((actor in self.ledger.allowlist and destination in self.ledger.allowlist, 0))
+
+
+class _SimRegistry:
+    def __init__(self, ledger: Ledger) -> None:
+        self.functions = _SimRegistryFunctions(ledger)
+
+
+class _SimAssetFunctions:
+    def paused(self) -> _Call:
+        return _Call(False)
+
+
+class _SimAsset:
+    functions = _SimAssetFunctions()
+
+
+def _policy_context(ledger: Ledger, destination: str, now_chain_ts: int = 0) -> PolicyContext:
+    return PolicyContext(
+        registry=_SimRegistry(ledger),
+        asset=_SimAsset(),
+        actor_address="issuer",
+        destination_address=destination,
+        now_chain_ts=now_chain_ts,
+        recent_total=lambda actor, window_s: 0,
+    )
+
+
 def _base_ledger() -> Ledger:
     ledger = Ledger()
     for persona in PERSONAS:
@@ -103,9 +144,9 @@ def run_demo(audit_path: Path) -> ScenarioResult:
             asset="RestrictedAssetToken",
             action="lock_asset",
         )
-        decision = policy.evaluate(intent, ledger.allowlist)
+        decision = policy.evaluate(intent, _policy_context(ledger, buyer))
         audit.append("custody", "issuer", decision.status, decision)
-        if decision.status == "queue":
+        if decision.status == "pending_approvals":
             lines.append(
                 f"[SIM] APPROVALS: {intent.intent_id} tier={decision.tier} approvals=complete"
             )
