@@ -1,6 +1,6 @@
 # tokenize-stack
 
-[![CI](https://github.com/vishnugovind10/tokenize-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishnugovind10/tokenize-stack/actions/workflows/ci.yml)
+[![CI](https://github.com/vishnugovind10/tokenize-stack/actions/workflows/build.yml/badge.svg)](https://github.com/vishnugovind10/tokenize-stack/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Solidity](https://img.shields.io/badge/solidity-0.8.x-black)
