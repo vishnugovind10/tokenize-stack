@@ -6,7 +6,7 @@ import time
 from uuid import uuid4
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -46,8 +46,8 @@ def run_demo() -> StackResult:
         (5_000, "investor-a"),
         (25_000, "investor-b"),
         (50_000, "investor-c"),
-        (125_000, "investor-d"),
-        (250_000, "investor-e"),
+        (125_000, "investor-a"),
+        (250_000, "investor-b"),
     ]:
         post_json(
             f"{BASE_URLS['settlement']}/trades",
@@ -59,6 +59,7 @@ def run_demo() -> StackResult:
                 "failure_mode": None,
             },
         )
+    wait_trades({"SETTLED"}, count=5)
     coupon = post_json(f"{BASE_URLS['settlement']}/coupon", {"interrupt_after": None})
     report = get_json(f"{BASE_URLS['recon']}/report")
     audit = get_json(f"{BASE_URLS['audit']}/verify")
@@ -86,19 +87,23 @@ def run_failures() -> StackResult:
             "failure_mode": "cash_leg_insufficient",
         },
     )
+    wait_trade_state(str(mismatch["trade_id"]), "FAILED_SETTLE")
     report_before = get_json(f"{BASE_URLS['recon']}/report")
-    post_json(f"{BASE_URLS['settlement']}/unwind", {"trade_id": mismatch["trade_id"]})
+    chain_warp(3700)
+    wait_trade_state(str(mismatch["trade_id"]), "UNWOUND")
     restricted = post_json(
         f"{BASE_URLS['settlement']}/trades",
         {
             "seller": "issuer",
-            "buyer": "unknown-buyer",
+            "buyer": "investor-f",
             "asset_amount": 5_000,
             "cash_amount": 5_000,
             "failure_mode": "restricted_buyer",
         },
     )
-    post_json(f"{BASE_URLS['settlement']}/unwind", {"trade_id": restricted["trade_id"]})
+    wait_trade_state(str(restricted["trade_id"]), "FAILED_SETTLE")
+    chain_warp(3700)
+    wait_trade_state(str(restricted["trade_id"]), "UNWOUND")
     coupon = post_json(f"{BASE_URLS['settlement']}/coupon", {"interrupt_after": 2})
     report_after = get_json(f"{BASE_URLS['recon']}/report")
     audit = get_json(f"{BASE_URLS['audit']}/verify")
@@ -106,7 +111,7 @@ def run_failures() -> StackResult:
         [
             str(report_before["marker"]),
             "UNWIND: COMPLETE",
-            f"RESTRICTED: SURFACED {restricted['revert_reason']}",
+            f"RESTRICTED: SURFACED {trade_by_id(str(restricted['trade_id']))['revert_reason']}",
             str(report_after["marker"]),
             (
                 "COUPON: NO DOUBLE PAYMENT"
@@ -137,6 +142,33 @@ def chain_warp(seconds: int) -> StackResult:
     return StackResult([f"CHAIN: WARPED {seconds} SECONDS", json.dumps(response, sort_keys=True)])
 
 
+def wait_trades(states: set[str], count: int, timeout_seconds: int = 90) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        trades = get_list(f"{BASE_URLS['settlement']}/trades")
+        if len(trades) >= count and all(str(trade["state"]) in states for trade in trades):
+            return
+        time.sleep(2)
+    raise RuntimeError(f"trades did not reach states {sorted(states)}")
+
+
+def wait_trade_state(trade_id: str, state: str, timeout_seconds: int = 90) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        trade = trade_by_id(trade_id)
+        if str(trade.get("state")) == state:
+            return
+        time.sleep(2)
+    raise RuntimeError(f"{trade_id} did not reach {state}")
+
+
+def trade_by_id(trade_id: str) -> dict[str, object]:
+    for trade in get_list(f"{BASE_URLS['settlement']}/trades"):
+        if str(trade["trade_id"]) == trade_id:
+            return trade
+    raise RuntimeError(f"unknown trade: {trade_id}")
+
+
 def pay(actor: str, destination: str, amount: int) -> StackResult:
     wait_ready()
     response = post_json(
@@ -155,6 +187,10 @@ def pay(actor: str, destination: str, amount: int) -> StackResult:
 
 def get_json(url: str) -> dict[str, object]:
     return cast(dict[str, object], json.loads(get_text(url)))
+
+
+def get_list(url: str) -> list[dict[str, Any]]:
+    return cast(list[dict[str, Any]], json.loads(get_text(url)))
 
 
 def get_text(url: str) -> str:

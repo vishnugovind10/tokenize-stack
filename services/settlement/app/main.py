@@ -1,23 +1,32 @@
 from __future__ import annotations
 
+import json
+import os
+import threading
 from typing import Any, cast
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from fastapi import FastAPI
 from pydantic import BaseModel
+from web3 import Web3
+from web3.contract import Contract
 
+from services.common import chain
 from services.common.audit_client import post_event
 from services.common.deployment import Deployment, wait_for_deployment
-from services.common.state import read_state, reset_state, write_state
+from services.settlement.store import SettlementStore, TradeRow
 
 app = FastAPI(title="tokenize-stack settlement")
+CUSTODY_URL = os.environ.get("CUSTODY_URL", "http://custody:8001")
+
 deployment: Deployment | None = None
-
-
-@app.on_event("startup")
-def load_deployment() -> None:
-    global deployment
-    deployment = wait_for_deployment()
+w3: Web3 | None = None
+escrow_contract: Contract | None = None
+asset_contract: Contract | None = None
+store: SettlementStore | None = None
+stop_poller = threading.Event()
+poller_thread: threading.Thread | None = None
 
 
 class TradeIn(BaseModel):
@@ -36,6 +45,28 @@ class CouponIn(BaseModel):
     interrupt_after: int | None = None
 
 
+@app.on_event("startup")
+def load_deployment() -> None:
+    global deployment, w3, escrow_contract, asset_contract, store, poller_thread
+    deployment = wait_for_deployment()
+    w3 = chain.get_w3(deployment)
+    escrow_contract = chain.escrow(w3, deployment)
+    asset_contract = chain.asset(w3, deployment)
+    store = SettlementStore()
+    stop_poller.clear()
+    poller_thread = threading.Thread(target=_poll_loop, daemon=True)
+    poller_thread.start()
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    stop_poller.set()
+    if poller_thread is not None:
+        poller_thread.join(timeout=5)
+    if store is not None:
+        store.close()
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "chain_id": str(deployment.chain_id if deployment else "unknown")}
@@ -43,84 +74,86 @@ def health() -> dict[str, str]:
 
 @app.post("/reset")
 def reset() -> dict[str, object]:
-    state = reset_state()
+    _ctx()["store"].reset()
     post_event("settlement", "system", "reset", {"trades": 0})
-    return {"status": "reset", "state": state}
+    return {"status": "reset", "trades": []}
 
 
 @app.post("/trades")
 def create_trade(trade_in: TradeIn) -> dict[str, object]:
-    state = read_state()
-    allowlist = cast(dict[str, bool], state["allowlist"])
-    cash_balances = cast(dict[str, int], state["cash_balances"])
-    trades = cast(list[dict[str, object]], state["trades"])
+    ctx = _ctx()
+    latest_ts = int(ctx["w3"].eth.get_block("latest")["timestamp"])
     trade_id = f"trade-{uuid4().hex[:10]}"
-    trade = {
-        "trade_id": trade_id,
-        "seller": trade_in.seller,
-        "buyer": trade_in.buyer,
-        "asset_amount": trade_in.asset_amount,
-        "cash_amount": trade_in.cash_amount,
-        "state": "PENDING_LOCK",
-        "revert_reason": None,
-    }
-    _lock_asset(state, trade)
-    post_event("settlement", trade_in.seller, "asset_locked", trade)
-
-    if trade_in.failure_mode == "restricted_buyer" or not allowlist.get(trade_in.buyer, False):
-        trade["state"] = "FAILED_SETTLE"
-        trade["revert_reason"] = "NotAllowlisted"
-        post_event("settlement", trade_in.buyer, "restriction_revert", trade)
-    elif cash_balances.get(trade_in.buyer, 0) < trade_in.cash_amount:
-        trade["state"] = "FAILED_SETTLE"
-        trade["revert_reason"] = "cash_leg_insufficient"
-        post_event("settlement", trade_in.buyer, "settle_failed", trade)
-    else:
-        _settle(state, trade)
-        post_event("settlement", trade_in.buyer, "settled", trade)
-
-    trades.append(trade)
-    write_state(state)
-    return trade
+    expiry = latest_ts + 3600
+    trade_key = Web3.to_hex(chain.trade_key(trade_id))
+    approve_intent_id = f"{trade_id}-approve_asset_escrow-{uuid4().hex[:6]}"
+    lock_intent_id = f"{trade_id}-lock_asset-{uuid4().hex[:6]}"
+    trade = TradeRow(
+        trade_id=trade_id,
+        trade_key=trade_key,
+        seller=trade_in.seller,
+        buyer=trade_in.buyer,
+        asset_amount=trade_in.asset_amount,
+        cash_amount=trade_in.cash_amount,
+        expiry=expiry,
+        state="PENDING_LOCK",
+        lock_intent_id=lock_intent_id,
+        settle_intent_id=None,
+        unwind_intent_id=None,
+        revert_reason=None,
+    )
+    row = cast(SettlementStore, ctx["store"]).insert_trade(trade)
+    _execute(
+        trade_id,
+        trade_in.seller,
+        "approve_asset_escrow",
+        "escrow",
+        trade_in.asset_amount,
+        {"trade_id": trade_id},
+        intent_id=approve_intent_id,
+    )
+    lock = _execute(
+        trade_id,
+        trade_in.seller,
+        "lock_asset",
+        trade_in.buyer,
+        trade_in.asset_amount,
+        {"trade_id": trade_id, "cash_amount": trade_in.cash_amount, "expiry": expiry},
+        intent_id=lock_intent_id,
+    )
+    if lock["status"] == "failed":
+        ctx["store"].update_state(
+            trade_id, "FAILED_LOCK", revert_reason=str(lock.get("reason", "transaction reverted"))
+        )
+        latest = ctx["store"].get_trade(trade_id)
+        if latest is not None:
+            row = latest
+    post_event("settlement", trade_in.seller, "lock_submitted", row.payload())
+    return row.payload()
 
 
 @app.post("/unwind")
 def unwind(unwind_in: UnwindIn) -> dict[str, object]:
-    state = read_state()
-    trades = cast(list[dict[str, object]], state["trades"])
-    locked_assets = cast(dict[str, dict[str, object]], state["locked_assets"])
-    asset_balances = cast(dict[str, int], state["asset_balances"])
-    for trade in trades:
-        if trade["trade_id"] == unwind_in.trade_id:
-            locked = locked_assets.pop(unwind_in.trade_id, None)
-            if locked is not None:
-                seller = str(trade["seller"])
-                asset_balances[seller] += cast(int, locked["amount"])
-            trade["state"] = "UNWOUND"
-            write_state(state)
-            post_event("settlement", "system", "unwound", trade)
-            return trade
-    return {"trade_id": unwind_in.trade_id, "state": "UNKNOWN"}
+    ctx = _ctx()
+    trade = ctx["store"].get_trade(unwind_in.trade_id)
+    if trade is None:
+        return {"trade_id": unwind_in.trade_id, "state": "UNKNOWN"}
+    response = _submit_unwind(trade)
+    updated = ctx["store"].get_trade(trade.trade_id)
+    return updated.payload() if updated is not None else response
 
 
 @app.get("/trades")
 def list_trades() -> list[dict[str, object]]:
-    return list(cast(list[dict[str, object]], read_state()["trades"]))
+    return [trade.payload() for trade in _ctx()["store"].list_trades()]
 
 
 @app.post("/coupon")
 def coupon(coupon_in: CouponIn) -> dict[str, object]:
-    state = read_state()
-    asset_balances = cast(dict[str, int], state["asset_balances"])
-    cash_balances = cast(dict[str, int], state["cash_balances"])
-    coupon_paid = cast(dict[str, int], state["coupon_paid"])
-    holders = [
-        holder
-        for holder, balance in sorted(asset_balances.items())
-        if holder != "issuer" and int(balance) > 0
-    ]
-    cursor = 0
+    ctx = _ctx()
+    holders = _holders_with_assets(ctx["deployment"], ctx["asset"])
     interrupted = False
+    cursor = 0
     while cursor < len(holders):
         holder = holders[cursor]
         if (
@@ -131,42 +164,181 @@ def coupon(coupon_in: CouponIn) -> dict[str, object]:
             interrupted = True
             post_event("coupon", "system", "batch_interrupted", {"cursor": cursor})
             continue
-        if holder not in coupon_paid:
-            coupon_paid[holder] = 100
-            cash_balances[holder] += 100
+        if ctx["store"].mark_coupon_paid(holder, 100):
             post_event("coupon", "issuer", "paid", {"holder": holder, "amount": 100})
         cursor += 1
-    write_state(state)
     return {
-        "paid": len(coupon_paid),
+        "paid": ctx["store"].coupon_count(),
         "cursor": cursor,
         "interrupted": interrupted,
-        "no_double_payment": len(coupon_paid) == len(set(coupon_paid)),
+        "no_double_payment": True,
     }
 
 
-def _lock_asset(state: dict[str, Any], trade: dict[str, object]) -> None:
-    balances = cast(dict[str, int], state["asset_balances"])
-    locked_assets = cast(dict[str, dict[str, object]], state["locked_assets"])
-    seller = str(trade["seller"])
-    amount = cast(int, trade["asset_amount"])
-    if balances[seller] < amount:
-        raise ValueError("seller asset balance too low")
-    balances[seller] -= amount
-    locked_assets[str(trade["trade_id"])] = {"seller": seller, "amount": amount}
-    trade["state"] = "LOCKED"
+def _poll_loop() -> None:
+    while not stop_poller.is_set():
+        try:
+            _poll_once()
+        except Exception as exc:
+            post_event("settlement", "system", "poller_error", {"error": str(exc)})
+        stop_poller.wait(2)
 
 
-def _settle(state: dict[str, Any], trade: dict[str, object]) -> None:
-    locked_assets = cast(dict[str, dict[str, object]], state["locked_assets"])
-    cash_balances = cast(dict[str, int], state["cash_balances"])
-    asset_balances = cast(dict[str, int], state["asset_balances"])
-    locked_assets.pop(str(trade["trade_id"]))
-    seller = str(trade["seller"])
-    buyer = str(trade["buyer"])
-    asset_amount = cast(int, trade["asset_amount"])
-    cash_amount = cast(int, trade["cash_amount"])
-    cash_balances[buyer] -= cash_amount
-    cash_balances[seller] += cash_amount
-    asset_balances[buyer] += asset_amount
-    trade["state"] = "SETTLED"
+def _poll_once() -> None:
+    ctx = _ctx()
+    _apply_escrow_events(ctx)
+    _advance_locked_trades(ctx)
+    _advance_failed_trades(ctx)
+
+
+def _apply_escrow_events(ctx: dict[str, Any]) -> None:
+    latest = int(ctx["w3"].eth.block_number)
+    from_block = ctx["store"].get_meta_int("escrow_cursor", 0) + 1
+    if from_block > latest:
+        return
+    for event_name, state in [
+        ("AssetLocked", "LOCKED"),
+        ("Settled", "SETTLED"),
+        ("Unwound", "UNWOUND"),
+    ]:
+        event = getattr(ctx["escrow"].events, event_name)
+        for log in event().get_logs(from_block=from_block, to_block=latest):
+            trade_key = Web3.to_hex(log["args"]["tradeId"])
+            trade = ctx["store"].get_by_key(trade_key)
+            if trade is None:
+                continue
+            ctx["store"].update_state(trade.trade_id, state)
+            post_event("settlement", "chain", state.lower(), {"trade_id": trade.trade_id})
+    ctx["store"].set_meta("escrow_cursor", str(latest))
+
+
+def _advance_locked_trades(ctx: dict[str, Any]) -> None:
+    for trade in ctx["store"].by_states(("LOCKED",)):
+        if trade.settle_intent_id is not None:
+            continue
+        _execute(
+            trade.trade_id,
+            trade.buyer,
+            "approve_cash_escrow",
+            "escrow",
+            trade.cash_amount,
+            {"trade_id": trade.trade_id},
+        )
+        response = _execute(
+            trade.trade_id,
+            trade.buyer,
+            "settle_trade",
+            trade.seller,
+            trade.cash_amount,
+            {"trade_id": trade.trade_id},
+        )
+        if response["status"] == "failed":
+            ctx["store"].update_state(
+                trade.trade_id,
+                "FAILED_SETTLE",
+                settle_intent_id=str(response["intent_id"]),
+                revert_reason=str(response.get("reason", "transaction reverted")),
+            )
+            post_event("settlement", trade.buyer, "settle_failed", _trade_payload(trade, response))
+        else:
+            ctx["store"].update_state(
+                trade.trade_id, "PENDING_SETTLE", settle_intent_id=str(response["intent_id"])
+            )
+            post_event(
+                "settlement", trade.buyer, "settle_submitted", _trade_payload(trade, response)
+            )
+
+
+def _advance_failed_trades(ctx: dict[str, Any]) -> None:
+    latest_ts = int(ctx["w3"].eth.get_block("latest")["timestamp"])
+    for trade in ctx["store"].by_states(("FAILED_SETTLE",)):
+        if latest_ts > trade.expiry and trade.unwind_intent_id is None:
+            _submit_unwind(trade)
+
+
+def _submit_unwind(trade: TradeRow) -> dict[str, object]:
+    response = _execute(
+        trade.trade_id,
+        trade.seller,
+        "unwind_trade",
+        "escrow",
+        trade.asset_amount,
+        {"trade_id": trade.trade_id},
+    )
+    if response["status"] == "failed":
+        _ctx()["store"].update_state(
+            trade.trade_id,
+            "FAILED_SETTLE",
+            unwind_intent_id=str(response["intent_id"]),
+            revert_reason=str(response.get("reason", "transaction reverted")),
+        )
+    else:
+        _ctx()["store"].update_state(
+            trade.trade_id, "UNWINDING", unwind_intent_id=str(response["intent_id"])
+        )
+        post_event("settlement", "system", "unwind_submitted", _trade_payload(trade, response))
+    return response
+
+
+def _execute(
+    trade_id: str,
+    actor: str,
+    action: str,
+    destination: str,
+    amount: int,
+    params: dict[str, object],
+    *,
+    intent_id: str | None = None,
+) -> dict[str, object]:
+    payload = {
+        "intent_id": intent_id or f"{trade_id}-{action}-{uuid4().hex[:6]}",
+        "actor": actor,
+        "destination": destination,
+        "amount": amount,
+        "asset": "escrow",
+        "action": action,
+        "params": params,
+    }
+    return _post_json(f"{CUSTODY_URL}/execute", payload)
+
+
+def _holders_with_assets(deployment_obj: Deployment, asset: Contract) -> list[str]:
+    holders: list[str] = []
+    for name, address in sorted(deployment_obj.personas.items()):
+        if name == "issuer":
+            continue
+        balance = int(asset.functions.balanceOf(Web3.to_checksum_address(address)).call())
+        if balance > 0:
+            holders.append(name)
+    return holders
+
+
+def _post_json(url: str, payload: dict[str, object]) -> dict[str, object]:
+    data = json.dumps(payload).encode("utf-8")
+    request = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    with urlopen(request, timeout=30) as response:
+        return cast(dict[str, object], json.loads(response.read().decode("utf-8")))
+
+
+def _trade_payload(trade: TradeRow, response: dict[str, object]) -> dict[str, object]:
+    payload = trade.payload()
+    payload["custody"] = response
+    return payload
+
+
+def _ctx() -> dict[str, Any]:
+    if (
+        deployment is None
+        or w3 is None
+        or escrow_contract is None
+        or asset_contract is None
+        or store is None
+    ):
+        raise RuntimeError("settlement service not initialized")
+    return {
+        "deployment": deployment,
+        "w3": w3,
+        "escrow": escrow_contract,
+        "asset": asset_contract,
+        "store": store,
+    }

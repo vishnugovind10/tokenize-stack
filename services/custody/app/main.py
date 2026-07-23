@@ -28,6 +28,7 @@ w3: Web3 | None = None
 registry_contract: Contract | None = None
 asset_contract: Contract | None = None
 cash_contract: Contract | None = None
+escrow_contract: Contract | None = None
 store: CustodyStore | None = None
 
 
@@ -37,12 +38,13 @@ class ApprovalIn(BaseModel):
 
 @app.on_event("startup")
 def load_deployment() -> None:
-    global deployment, w3, registry_contract, asset_contract, cash_contract, store
+    global deployment, w3, registry_contract, asset_contract, cash_contract, escrow_contract, store
     deployment = wait_for_deployment()
     w3 = chain.get_w3(deployment)
     registry_contract = chain.registry(w3, deployment)
-    asset_contract = registry_contract
+    asset_contract = chain.asset(w3, deployment)
     cash_contract = chain.cash(w3, deployment)
+    escrow_contract = chain.escrow(w3, deployment)
     store = CustodyStore()
 
 
@@ -115,7 +117,47 @@ def sign_intent(intent: Intent) -> dict[str, object]:
 
 @app.post("/execute")
 def execute(intent: Intent) -> dict[str, object]:
-    return sign_intent(intent)
+    custody = _ctx()
+    now_chain_ts = _chain_timestamp(custody["w3"])
+    status = "signed"
+    reason: str | None = None
+    tx_hash: str | None = None
+    try:
+        tx_hash = _broadcast(intent)
+    except Exception as exc:
+        status = "failed"
+        reason = chain.decode_revert(exc)
+    row = custody["store"].insert_intent(
+        intent,
+        "service",
+        status,
+        tx_hash,
+        now_chain_ts,
+        "service_execution",
+    )
+    post_event(
+        "custody",
+        intent.actor,
+        "intent_evaluated",
+        {
+            "intent_id": intent.intent_id,
+            "status": status,
+            "tier": "service",
+            "matched_rule": "service_execution",
+            "reason": reason,
+            "tx_hash": tx_hash,
+        },
+    )
+    if tx_hash is not None:
+        post_event(
+            "custody",
+            intent.actor,
+            "intent_broadcast",
+            {"intent_id": intent.intent_id, "status": status, "tx_hash": tx_hash},
+        )
+    if reason is not None:
+        return {**_row_payload(row), "reason": reason}
+    return _row_payload(row)
 
 
 @app.get("/approvals/pending")
@@ -186,6 +228,7 @@ def _ctx() -> dict[str, Any]:
         or registry_contract is None
         or asset_contract is None
         or cash_contract is None
+        or escrow_contract is None
         or store is None
     ):
         raise RuntimeError("custody service not initialized")
@@ -195,6 +238,7 @@ def _ctx() -> dict[str, Any]:
         "registry": registry_contract,
         "asset": asset_contract,
         "cash": cash_contract,
+        "escrow": escrow_contract,
         "store": store,
     }
 
@@ -204,7 +248,7 @@ def _policy_context(intent: Intent, now_chain_ts: int) -> PolicyContext:
     deployment_obj = custody["deployment"]
     return PolicyContext(
         registry=custody["registry"],
-        asset=custody["asset"],
+        asset=custody["registry"],
         actor_address=resolve_address(deployment_obj, intent.actor),
         destination_address=resolve_address(deployment_obj, intent.destination),
         now_chain_ts=now_chain_ts,
@@ -220,7 +264,13 @@ def _chain_timestamp(w3_obj: Web3) -> int:
 
 def _broadcast(intent: Intent) -> str:
     custody = _ctx()
-    tx_params = build_transaction(intent, custody["deployment"], custody["cash"])
+    tx_params = build_transaction(
+        intent,
+        custody["deployment"],
+        custody["asset"],
+        custody["cash"],
+        custody["escrow"],
+    )
     receipt = asyncio.run(
         chain.send(custody["w3"], custody["deployment"], signer_for(intent.actor), tx_params)
     )

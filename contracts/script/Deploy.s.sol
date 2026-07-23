@@ -19,6 +19,7 @@ contract Deploy is Script {
     address internal constant INVESTOR_C = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
     address internal constant INVESTOR_D = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
     address internal constant INVESTOR_E = 0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc;
+    address internal constant INVESTOR_F = 0x976EA74026E726554dB657fA54763abd0C3a0aa9;
 
     function run() external {
         vm.startBroadcast();
@@ -43,6 +44,7 @@ contract Deploy is Script {
         cash.transfer(INVESTOR_C, INVESTOR_CASH);
         cash.transfer(INVESTOR_D, INVESTOR_CASH);
         cash.transfer(INVESTOR_E, UNDERFUNDED_CASH);
+        cash.transfer(INVESTOR_F, INVESTOR_CASH);
         vm.stopBroadcast();
 
         vm.writeJson(deploymentJson(registry, asset, cash, escrow, distributor), "out/deployment.json");
@@ -104,6 +106,8 @@ contract Deploy is Script {
             vm.toString(INVESTOR_D),
             '","investor-e":"',
             vm.toString(INVESTOR_E),
+            '","investor-f":"',
+            vm.toString(INVESTOR_F),
             '"}'
         );
     }

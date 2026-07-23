@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -21,6 +22,7 @@ class IntentRow:
     tx_hash: str | None
     created_chain_ts: int
     matched_rule: str
+    params: dict[str, object]
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "IntentRow":
@@ -36,6 +38,7 @@ class IntentRow:
             tx_hash=str(row["tx_hash"]) if row["tx_hash"] is not None else None,
             created_chain_ts=int(row["created_chain_ts"]),
             matched_rule=str(row["matched_rule"]),
+            params=json.loads(str(row["params_json"])),
         )
 
     def to_intent(self) -> Intent:
@@ -46,6 +49,7 @@ class IntentRow:
             self.amount,
             self.asset,
             self.action,
+            self.params,
         )
 
 
@@ -75,9 +79,17 @@ class CustodyStore:
                 status TEXT NOT NULL,
                 tx_hash TEXT NULL,
                 created_chain_ts INTEGER NOT NULL,
-                matched_rule TEXT NOT NULL
+                matched_rule TEXT NOT NULL,
+                params_json TEXT NOT NULL DEFAULT '{}'
             )
             """)
+        columns = {
+            str(row["name"]) for row in self.conn.execute("PRAGMA table_info(intents)").fetchall()
+        }
+        if "params_json" not in columns:
+            self.conn.execute(
+                "ALTER TABLE intents ADD COLUMN params_json TEXT NOT NULL DEFAULT '{}'"
+            )
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS approvals (
                 intent_id TEXT NOT NULL,
@@ -102,9 +114,9 @@ class CustodyStore:
             """
             INSERT INTO intents (
                 intent_id, actor, destination, amount, asset, action, tier, status,
-                tx_hash, created_chain_ts, matched_rule
+                tx_hash, created_chain_ts, matched_rule, params_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 intent.intent_id,
@@ -118,6 +130,7 @@ class CustodyStore:
                 tx_hash,
                 created_chain_ts,
                 matched_rule,
+                json.dumps(intent.params, sort_keys=True),
             ),
         )
         self.conn.commit()

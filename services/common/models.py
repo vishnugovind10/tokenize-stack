@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -29,6 +29,7 @@ class Intent:
     amount: int
     asset: str
     action: str
+    params: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass

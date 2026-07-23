@@ -13,11 +13,16 @@ This repository demonstrates architecture and testable interfaces. It is not aud
 - Models one asset leg and one cash leg.
 - Does not implement net settlement, multiple venues, or counterparty exception workflow.
 - Expiry unwind is intentionally simple.
+- Stores the settlement projection in a local SQLite database and rebuilds no historical index beyond the persisted cursor.
 
 ## Reconciliation
 
 - Compares local projections, chain-shaped state, and audit records.
 - Does not ingest counterparty files, custodian files, or historical exception queues.
+
+## Coupons
+
+- Coupon demo markers remain service-local until the distributor path is routed through custody.
 
 ## Contracts
 

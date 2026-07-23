@@ -1,6 +1,6 @@
 # Architecture
 
-`tokenize-stack` is a local reference stack. v0.2 moves the default path toward a Docker-backed stack with Anvil, a Foundry deployer, FastAPI services, and a read-only console. Service state is a projection used to explain the flow; sim mode is explicitly separate.
+`tokenize-stack` is a local reference stack. v0.2 moves the default path toward a Docker-backed stack with Anvil, a Foundry deployer, FastAPI services, and a read-only console. Settlement state is a SQLite projection over deployed escrow events; sim mode is explicitly separate.
 
 ## Components
 
@@ -19,7 +19,8 @@ flowchart TB
     Custody --> Audit["auditlog service"]
     Settlement --> Audit
     Recon --> Audit
-    Settlement --> Escrow["DvPEscrow"]
+    Settlement --> Custody
+    Custody --> Escrow["DvPEscrow"]
     Escrow --> Asset["RestrictedAssetToken"]
     Escrow --> Cash["CashToken"]
     Recon --> Asset
@@ -35,13 +36,16 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant Seller
+    participant Settlement
     participant Custody
     participant Escrow
     participant Buyer
     participant Recon
-    Seller->>Custody: sign lock intent
+    Seller->>Settlement: create trade
+    Settlement->>Custody: approve asset + lock intent
     Custody->>Escrow: lock asset
-    Buyer->>Escrow: settle with cash
+    Settlement->>Custody: approve cash + settle intent
+    Custody->>Escrow: settle with cash
     Escrow-->>Seller: cash
     Escrow-->>Buyer: asset
     Recon->>Escrow: read settled state
@@ -53,13 +57,16 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Buyer
+    participant Custody
     participant Escrow
     participant Settlement
     participant Recon
-    Buyer->>Escrow: settle without enough cash
+    Settlement->>Custody: buyer settle intent
+    Custody->>Escrow: settle without enough cash
     Escrow-->>Buyer: revert
     Settlement->>Escrow: observe expiry
-    Settlement->>Escrow: unwind
+    Settlement->>Custody: unwind intent
+    Custody->>Escrow: unwind
     Recon->>Settlement: compare projection
     Recon-->>Settlement: mismatch cleared
 ```
@@ -72,8 +79,8 @@ sequenceDiagram
     participant Distributor
     participant Holder
     participant Audit
-    Issuer->>Distributor: fund coupon round
-    Distributor->>Holder: pay batch
+    Issuer->>Distributor: fund coupon round (P3)
+    Distributor->>Holder: pay batch (P3)
     Distributor--xHolder: injected interruption
     Distributor->>Audit: record cursor
     Distributor->>Holder: resume from cursor
@@ -86,3 +93,4 @@ sequenceDiagram
 - The console is read-only.
 - The audit verifier detects missing, edited, or reordered records in the JSONL chain.
 - The local signer interface is the replacement point for real custody infrastructure.
+- Coupon markers are local service behavior until the distributor is wired through custody in P3.

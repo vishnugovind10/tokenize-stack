@@ -23,6 +23,9 @@ class RegistryFunctions:
     def canTransfer(self, actor: str, destination: str, amount: int) -> Call:
         return Call((True, 0))
 
+    def paused(self) -> Call:
+        return Call(False)
+
 
 class Registry:
     functions = RegistryFunctions()
@@ -62,6 +65,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     main.registry_contract = Registry()  # type: ignore[assignment]
     main.asset_contract = Asset()  # type: ignore[assignment]
     main.cash_contract = object()  # type: ignore[assignment]
+    main.escrow_contract = object()  # type: ignore[assignment]
     main.store = CustodyStore(tmp_path / "custody.db")
     monkeypatch.setattr(main, "post_event", lambda *args, **kwargs: None)
     yield TestClient(main.app)
@@ -71,6 +75,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     main.registry_contract = None
     main.asset_contract = None
     main.cash_contract = None
+    main.escrow_contract = None
     main.store = None
 
 
