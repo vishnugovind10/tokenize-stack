@@ -4,6 +4,7 @@ out = "out"
 libs = ["lib"]
 solc_version = "0.8.26"
 remappings = ["forge-std/=lib/forge-std/src/"]
+fs_permissions = [{ access = "read-write", path = "./out" }]
 
 [fuzz]
 runs = 256
