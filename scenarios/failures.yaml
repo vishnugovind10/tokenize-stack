@@ -1,0 +1,5 @@
+name: failure-paths
+steps:
+  - cash_leg_insufficient
+  - restricted_buyer
+  - coupon_batch_interruption

@@ -1,0 +1,24 @@
+services:
+  auditlog:
+    build: .
+    command: uvicorn services.auditlog.app.main:app --host 0.0.0.0 --port 8004
+    ports: ["8004:8004"]
+    volumes: ["audit-data:/data"]
+  custody:
+    build: .
+    command: uvicorn services.custody.app.main:app --host 0.0.0.0 --port 8001
+    ports: ["8001:8001"]
+  settlement:
+    build: .
+    command: uvicorn services.settlement.app.main:app --host 0.0.0.0 --port 8002
+    ports: ["8002:8002"]
+  recon:
+    build: .
+    command: uvicorn services.recon.app.main:app --host 0.0.0.0 --port 8003
+    ports: ["8003:8003"]
+  console:
+    image: nginx:1.27-alpine
+    ports: ["8080:80"]
+    volumes: ["./console:/usr/share/nginx/html:ro"]
+volumes:
+  audit-data:

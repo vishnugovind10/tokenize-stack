@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this reference implementation, cite it using this metadata."
+title: "tokenize-stack: a forkable tokenization reference stack"
+version: "0.1.0"
+type: software
+authors:
+  - family-names: Govind
+    given-names: Vishnu
+license: MIT
+repository-code: "https://github.com/vishnugovind10/tokenize-stack"
+date-released: "2026-07-23"

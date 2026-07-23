@@ -1,0 +1,8 @@
+name: happy-path
+steps:
+  - issue
+  - allowlist
+  - distribute_via_dvp
+  - coupon
+  - reconcile
+  - verify_audit

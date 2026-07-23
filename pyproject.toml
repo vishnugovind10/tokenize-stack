@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokenize-stack"
+version = "0.1.0"
+description = "Forkable institutional tokenization reference stack."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Vishnu Govind" }]
+dependencies = [
+  "fastapi>=0.111",
+  "pydantic>=2.7",
+  "pyyaml>=6.0",
+  "typer>=0.12",
+  "uvicorn>=0.30"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.5",
+  "black>=24.4",
+  "mypy>=1.10",
+  "types-PyYAML>=6.0.12"
+]
+
+[project.scripts]
+stackctl = "stackctl.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["stackctl*", "services*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["services.common", "services.auditlog", "services.custody", "stackctl"]

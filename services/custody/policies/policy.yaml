@@ -1,0 +1,17 @@
+tiers:
+  - name: auto
+    max_amount: 10000
+    approvals_required: 0
+  - name: dual
+    max_amount: 250000
+    approvals_required: 2
+  - name: quorum
+    max_amount: null
+    approvals_required: 3
+rules:
+  destination_allowlist: true
+  velocity:
+    window_minutes: 60
+    max_total_amount: 500000
+  deny_when_paused: true
+approvers: [ops-1, ops-2, risk-1, cto]
