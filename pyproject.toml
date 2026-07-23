@@ -26,7 +26,8 @@ dev = [
   "ruff>=0.5",
   "black>=24.4",
   "mypy>=1.10",
-  "types-PyYAML>=6.0.12"
+  "types-PyYAML>=6.0.12",
+  "httpx2>=2.9"
 ]
 
 [project.scripts]
