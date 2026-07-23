@@ -14,26 +14,30 @@
         margin: 0;
       }
       header {
-        border-bottom: 1px solid #d8dee3;
-        padding: 18px 28px;
+        align-items: center;
         background: #ffffff;
+        border-bottom: 1px solid #d8dee3;
+        display: flex;
+        justify-content: space-between;
+        padding: 18px 28px;
       }
       main {
         display: grid;
         gap: 16px;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         padding: 24px;
       }
       section {
         background: #ffffff;
         border: 1px solid #d8dee3;
         border-radius: 8px;
+        min-height: 180px;
         padding: 16px;
-        min-height: 160px;
       }
-      h1, h2 {
-        margin: 0;
+      h1,
+      h2 {
         font-size: 18px;
+        margin: 0;
       }
       h2 {
         font-size: 14px;
@@ -41,12 +45,14 @@
       }
       table {
         border-collapse: collapse;
-        width: 100%;
         font-size: 13px;
+        width: 100%;
       }
-      td {
+      td,
+      th {
         border-top: 1px solid #e6eaed;
-        padding: 8px 0;
+        padding: 8px 6px 8px 0;
+        text-align: left;
       }
       .ok {
         color: #0d684f;
@@ -56,27 +62,103 @@
         color: #a43731;
         font-weight: 700;
       }
+      .muted {
+        color: #63717a;
+      }
+      pre {
+        background: #f1f4f6;
+        border-radius: 6px;
+        font-size: 12px;
+        margin: 0;
+        max-height: 220px;
+        overflow: auto;
+        padding: 10px;
+      }
     </style>
   </head>
   <body>
-    <header><h1>tokenize-stack console</h1></header>
+    <header>
+      <h1>tokenize-stack console</h1>
+      <span id="status" class="muted">connecting</span>
+    </header>
     <main>
       <section>
-        <h2>Asset & Holders</h2>
-        <table><tr><td>Issuer</td><td>750000</td></tr><tr><td>Investors</td><td>250000</td></tr></table>
+        <h2>Holders & Restrictions</h2>
+        <table id="holders"></table>
       </section>
       <section>
         <h2>Trades</h2>
-        <table><tr><td>Happy path</td><td class="ok">SETTLED</td></tr><tr><td>Failure demo</td><td class="fail">UNWOUND</td></tr></table>
+        <table id="trades"></table>
       </section>
       <section>
-        <h2>Coupon Rounds</h2>
-        <table><tr><td>Cursor</td><td>complete</td></tr><tr><td>Duplicate payments</td><td class="ok">0</td></tr></table>
+        <h2>Coupon Round</h2>
+        <table id="coupon"></table>
       </section>
       <section>
         <h2>Reconciliation</h2>
-        <table><tr><td>Matched</td><td class="ok">all</td></tr><tr><td>Audit chain</td><td class="ok">intact</td></tr></table>
+        <table id="recon"></table>
+      </section>
+      <section>
+        <h2>Audit Tail</h2>
+        <pre id="audit"></pre>
       </section>
     </main>
+    <script>
+      const api = {
+        recon: "/api/recon/report",
+        trades: "/api/settlement/trades",
+        audit: "/api/audit/tail?n=20",
+      };
+
+      function cell(value, className = "") {
+        return `<td class="${className}">${String(value)}</td>`;
+      }
+
+      async function refresh() {
+        const [report, trades, audit] = await Promise.all([
+          fetch(api.recon).then((r) => r.json()),
+          fetch(api.trades).then((r) => r.json()),
+          fetch(api.audit).then((r) => r.json()),
+        ]);
+        document.getElementById("status").textContent = report.marker;
+        document.getElementById("status").className = report.mismatched ? "fail" : "ok";
+        document.getElementById("trades").innerHTML =
+          "<tr><th>Trade</th><th>Buyer</th><th>State</th><th>Reason</th></tr>" +
+          trades
+            .map((trade) => {
+              const stateClass = String(trade.state).includes("FAILED") ? "fail" : "ok";
+              return `<tr>${cell(trade.trade_id)}${cell(trade.buyer)}${cell(
+                trade.state,
+                stateClass,
+              )}${cell(trade.revert_reason || "")}</tr>`;
+            })
+            .join("");
+        document.getElementById("recon").innerHTML =
+          "<tr><th>Subject</th><th>Chain</th><th>Projection</th><th>Status</th></tr>" +
+          report.rows
+            .map((row) => {
+              const rowClass = row.status === "MISMATCH" ? "fail" : "ok";
+              return `<tr>${cell(row.subject)}${cell(row.chain)}${cell(
+                row.settlement_view,
+              )}${cell(row.status, rowClass)}</tr>`;
+            })
+            .join("");
+        document.getElementById("coupon").innerHTML = `<tr>${cell("Paid holders")}${cell(
+          audit.filter((event) => event.action === "paid").length,
+          "ok",
+        )}</tr>`;
+        document.getElementById("holders").innerHTML =
+          "<tr><td class='muted'>Balances are exposed through recon snapshots in the next build slice.</td></tr>";
+        document.getElementById("audit").textContent = audit
+          .map((event) => `${event.seq} ${event.service}.${event.action}`)
+          .join("\n");
+      }
+
+      refresh().catch(() => {
+        document.getElementById("status").textContent = "services unavailable";
+        document.getElementById("status").className = "fail";
+      });
+      setInterval(() => refresh().catch(() => undefined), 2000);
+    </script>
   </body>
 </html>

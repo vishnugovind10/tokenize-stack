@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from services.common.models import Intent, Ledger
+from services.common.models import Intent
 
 
 @dataclass(frozen=True)
@@ -43,8 +43,8 @@ class Policy:
         ]
         return cls(tiers=tiers, rules=data["rules"], approvers=list(data["approvers"]))
 
-    def evaluate(self, intent: Intent, ledger: Ledger) -> PolicyDecision:
-        if self.rules.get("destination_allowlist") and intent.destination not in ledger.allowlist:
+    def evaluate(self, intent: Intent, allowlist: set[str]) -> PolicyDecision:
+        if self.rules.get("destination_allowlist") and intent.destination not in allowlist:
             return PolicyDecision("deny", "none", 0, "destination_not_allowlisted")
         for tier in self.tiers:
             if tier.max_amount is None or intent.amount <= tier.max_amount:

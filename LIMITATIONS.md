@@ -33,3 +33,7 @@ This repository demonstrates architecture and testable interfaces. It is not aud
 
 - Docker Compose is the demo boundary.
 - No Kubernetes, Terraform, or production deployment manifests are included.
+- The local chain is a single Anvil node, so the demo does not model finality or reorg handling.
+- Auto-mine hides gas, congestion, latency, and mempool dynamics.
+- The current nonce strategy assumes one custody service instance.
+- Demo approver names are unauthenticated local identities.

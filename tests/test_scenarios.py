@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from stackctl.scenarios import run_demo, run_failures
+from stackctl.sim import run_demo, run_failures
 
 
 def test_demo_markers(tmp_path: Path) -> None:

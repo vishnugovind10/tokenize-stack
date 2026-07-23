@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Solidity](https://img.shields.io/badge/solidity-0.8.x-black)
 
-Run a complete institutional tokenization reference stack locally in five minutes: restricted assets, custody policy enforcement, atomic DvP settlement, reconciliation, and a verifiable audit trail.
+Run an institutional tokenization reference stack locally: restricted assets, custody policy enforcement, DvP settlement, reconciliation, and a verifiable audit trail.
 
 ![Demo placeholder](assets/demo.gif)
 
@@ -14,8 +14,18 @@ Run a complete institutional tokenization reference stack locally in five minute
 ```bash
 git clone https://github.com/vishnugovind10/tokenize-stack.git
 cd tokenize-stack
-make demo
+python -m stackctl up
+python -m stackctl demo
 ```
+
+Docker is required for the default stack mode. For quick exploration without Docker:
+
+```bash
+python -m stackctl demo --mode sim
+python -m stackctl demo-failures --mode sim
+```
+
+Sim mode is a dependency-free simulation of the flow logic. It does not start services and does not touch a chain.
 
 > Token-standard samples usually show contracts in isolation. The difficult wiring is custody policy, settlement failure handling, reconciliation, and audit evidence. This repository ships that wiring as a forkable template.
 
@@ -44,13 +54,13 @@ flowchart LR
 
 | Component | What it does | Where production diverges |
 |---|---|---|
-| `contracts/` | Restricted asset, registry, demo cash token, DvP escrow, coupon distributor | Audit, governance, upgrade planning, and deployment controls |
-| `services/custody/` | Policy tiers, approvals, signer interface, local demo signer | Real key ceremonies, HSM/MPC integration, identity-bound approvals |
-| `services/settlement/` | DvP orchestration and expiry unwind states | Multi-venue settlement, netting, richer fails handling |
-| `services/recon/` | Chain/projection/audit comparison report | Counterparty statements, historical exception workflow |
-| `services/auditlog/` | Append-only JSONL records with hash-chain verifier | Durable retention, independent publication, operator separation |
-| `stackctl/` | Deterministic demo and failure runner | Production runbooks and access controls |
-| `console/` | Read-only screen-recordable status surface | Authentication, roles, write actions |
+| `contracts/` | Restricted asset, registry, demo cash token, DvP escrow, coupon distributor, Foundry deploy script | Audit, governance, upgrade planning, and deployment controls |
+| `services/custody/` | Policy tiers and approval model | Real key ceremonies, HSM/MPC integration, identity-bound approvals |
+| `services/settlement/` | Service-backed DvP projection, failure states, unwind path, coupon cursor | Multi-venue settlement, netting, richer fails handling |
+| `services/recon/` | Service-state reconciliation report with mismatch markers | Counterparty statements, historical exception workflow |
+| `services/auditlog/` | Append-only JSONL records with service download and verifier endpoints | Durable retention, independent publication, operator separation |
+| `stackctl/` | Operator CLI for compose, stack demos, sim demos, audit verification, and chain warp | Production runbooks and access controls |
+| `console/` | Read-only live console polling service APIs through nginx | Authentication, roles, write actions |
 
 ## Failure Demos
 
@@ -77,21 +87,22 @@ Keep the interfaces stable and replace one seam at a time. The local demo remain
 ## Commands
 
 ```bash
-make demo
-make demo-failures
-make test
-make lint
-make verify-audit
+python -m stackctl up
+python -m stackctl status
+python -m stackctl demo
+python -m stackctl demo-failures
+python -m stackctl verify-audit
+python -m stackctl down --volumes
 ```
 
-`make demo` prints:
+`python -m stackctl demo` prints:
 
 ```text
 RECON: ALL MATCHED
 AUDIT: CHAIN INTACT
 ```
 
-`make demo-failures` prints:
+`python -m stackctl demo-failures` prints:
 
 ```text
 UNWIND: COMPLETE
@@ -104,18 +115,19 @@ AUDIT: CHAIN INTACT
 
 | Surface | Status | Evidence |
 |---|---|---|
-| Deterministic lifecycle runner | Implemented | `make demo` |
-| Failure-path runner | Implemented | `make demo-failures` |
+| Stack lifecycle runner | In progress for v0.2 | `python -m stackctl demo` drives service APIs after compose startup |
+| Sim lifecycle runner | Implemented | `python -m stackctl demo --mode sim` |
+| Failure-path runner | In progress for v0.2 | `python -m stackctl demo-failures` drives service APIs after compose startup |
 | Audit tamper detection | Implemented | `tests/test_auditlog.py` |
 | Custody policy evaluation | Implemented | `tests/test_policy.py` |
 | Reconciliation report | Implemented | `tests/test_scenarios.py` |
-| Solidity contracts | Reference code | Foundry project under `contracts/` |
-| HTTP services | Minimal reference apps | FastAPI entry points under `services/` |
+| Solidity contracts | Hardened in v0.2 build branch | Foundry project under `contracts/` |
+| HTTP services | Service-backed state and audit endpoints | FastAPI entry points under `services/` |
 | Template distribution | Manual setting required after first publish | GitHub repository setting |
 
 ## Repository Map
 
-- `stackctl/`: deterministic lifecycle runner, scenario engine, and CLI.
+- `stackctl/`: operator CLI, stack-mode HTTP driver, and explicitly labeled sim-mode runner.
 - `services/common/`: shared models, audit writer, and in-memory ledger.
 - `services/auditlog/`: append-only audit ingest and offline verifier.
 - `services/custody/`: policy engine, approval queue, and signer interface.
@@ -130,8 +142,8 @@ AUDIT: CHAIN INTACT
 ```bash
 python -m pip install -e ".[dev]"
 pytest
-python -m stackctl demo
-python -m stackctl demo-failures
+python -m stackctl demo --mode sim
+python -m stackctl demo-failures --mode sim
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [LIMITATIONS.md](LIMITATIONS.md), [ROADMAP.md](ROADMAP.md), and [SECURITY.md](SECURITY.md).

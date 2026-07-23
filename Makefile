@@ -6,11 +6,17 @@ demo:
 demo-failures:
 	python -m stackctl demo-failures
 
+demo-sim:
+	python -m stackctl demo --mode sim
+
+demo-failures-sim:
+	python -m stackctl demo-failures --mode sim
+
 up:
-	docker compose up --build
+	python -m stackctl up
 
 down:
-	docker compose down --volumes
+	python -m stackctl down --volumes
 
 test:
 	pytest
@@ -21,5 +27,4 @@ lint:
 	mypy services/common services/auditlog services/custody stackctl
 
 verify-audit:
-	python -m stackctl demo --audit-out .tokenize-stack-audit.jsonl
-	python -m services.auditlog.verifier .tokenize-stack-audit.jsonl
+	python -m stackctl verify-audit --output .tokenize-stack-audit.jsonl

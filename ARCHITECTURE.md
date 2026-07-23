@@ -1,12 +1,19 @@
 # Architecture
 
-`tokenize-stack` is a local reference stack. The chain is the source of truth; service databases and reports are projections used to explain the flow.
+`tokenize-stack` is a local reference stack. v0.2 moves the default path toward a Docker-backed stack with Anvil, a Foundry deployer, FastAPI services, and a read-only console. Service state is a projection used to explain the flow; sim mode is explicitly separate.
 
 ## Components
 
 ```mermaid
 flowchart TB
     CLI["stackctl"] --> Custody["custody service"]
+    CLI --> Compose["docker compose"]
+    Compose --> Anvil["anvil"]
+    Compose --> Deployer["Foundry deployer"]
+    Deployer --> Volume["deployment volume"]
+    Volume --> Custody
+    Volume --> Settlement
+    Volume --> Recon
     CLI --> Settlement["settlement service"]
     CLI --> Recon["recon service"]
     Custody --> Audit["auditlog service"]

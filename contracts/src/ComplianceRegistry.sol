@@ -44,6 +44,7 @@ contract ComplianceRegistry {
 
     function canTransfer(address from, address to, uint256) external view returns (bool, Reason) {
         if (paused) return (false, Reason.TokenPaused);
+        if (!allowlisted[from]) return (false, Reason.NotAllowlisted);
         if (!allowlisted[to]) return (false, Reason.NotAllowlisted);
         if (block.timestamp < lockupUntil[from]) return (false, Reason.LockupActive);
         return (true, Reason.None);

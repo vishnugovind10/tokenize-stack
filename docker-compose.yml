@@ -1,24 +1,104 @@
 services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["anvil"]
+    command:
+      [
+        "--host",
+        "0.0.0.0",
+        "--chain-id",
+        "31337",
+        "--mnemonic",
+        "test test test test test test test test test test test junk",
+      ]
+    ports: ["8545:8545"]
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 2s
+      retries: 30
+  deployer:
+    image: ghcr.io/foundry-rs/foundry:latest
+    working_dir: /repo/contracts
+    volumes:
+      - .:/repo
+      - deployment:/deployment
+    depends_on:
+      anvil:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "forge install foundry-rs/forge-std --no-commit || true;
+      export ANVIL_KEY_0=$$(cast wallet private-key
+      --mnemonic 'test test test test test test test test test test test junk'
+      --mnemonic-index 0);
+      forge script script/Deploy.s.sol:Deploy --rpc-url http://anvil:8545 --broadcast
+      --private-key $$ANVIL_KEY_0 &&
+      cp /repo/contracts/out/deployment.json /deployment/deployment.json"
   auditlog:
     build: .
     command: uvicorn services.auditlog.app.main:app --host 0.0.0.0 --port 8004
     ports: ["8004:8004"]
     volumes: ["audit-data:/data"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 2s
+      retries: 30
   custody:
     build: .
     command: uvicorn services.custody.app.main:app --host 0.0.0.0 --port 8001
     ports: ["8001:8001"]
+    volumes:
+      - deployment:/deployment:ro
+      - stack-data:/data
+    depends_on:
+      deployer:
+        condition: service_completed_successfully
+      auditlog:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 2s
+      retries: 30
   settlement:
     build: .
     command: uvicorn services.settlement.app.main:app --host 0.0.0.0 --port 8002
     ports: ["8002:8002"]
+    volumes:
+      - deployment:/deployment:ro
+      - stack-data:/data
+    depends_on:
+      deployer:
+        condition: service_completed_successfully
+      auditlog:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 2s
+      retries: 30
   recon:
     build: .
     command: uvicorn services.recon.app.main:app --host 0.0.0.0 --port 8003
     ports: ["8003:8003"]
+    volumes:
+      - deployment:/deployment:ro
+      - stack-data:/data:ro
+    depends_on:
+      settlement:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 2s
+      retries: 30
   console:
     image: nginx:1.27-alpine
     ports: ["8080:80"]
-    volumes: ["./console:/usr/share/nginx/html:ro"]
+    volumes:
+      - ./console:/usr/share/nginx/html:ro
+      - ./console/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      recon:
+        condition: service_healthy
 volumes:
   audit-data:
+  stack-data:
+  deployment:

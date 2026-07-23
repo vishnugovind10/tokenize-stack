@@ -4,7 +4,9 @@ pragma solidity ^0.8.26;
 import "./ComplianceRegistry.sol";
 import "./SimpleERC20.sol";
 
-error TransferRestricted(ComplianceRegistry.Reason reason);
+error NotAllowlisted(address account);
+error TokenPaused();
+error LockupActive(address account, uint256 until);
 
 contract RestrictedAssetToken is SimpleERC20 {
     ComplianceRegistry public registry;
@@ -36,6 +38,13 @@ contract RestrictedAssetToken is SimpleERC20 {
 
     function _check(address from, address to, uint256 amount) internal view {
         (bool allowed, ComplianceRegistry.Reason reason) = registry.canTransfer(from, to, amount);
-        if (!allowed) revert TransferRestricted(reason);
+        if (!allowed && reason == ComplianceRegistry.Reason.TokenPaused) revert TokenPaused();
+        if (!allowed && reason == ComplianceRegistry.Reason.LockupActive) {
+            revert LockupActive(from, registry.lockupUntil(from));
+        }
+        if (!allowed) {
+            if (!registry.allowlisted(from)) revert NotAllowlisted(from);
+            revert NotAllowlisted(to);
+        }
     }
 }

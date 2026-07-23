@@ -6,7 +6,19 @@ name: Build
   workflow_dispatch:
 
 jobs:
-  build:
+  foundry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge install foundry-rs/forge-std --no-commit
+        working-directory: contracts
+      - run: forge fmt --check
+        working-directory: contracts
+      - run: forge test -vvv
+        working-directory: contracts
+
+  python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,16 +28,46 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: ruff check .
       - run: black --check .
-      - run: mypy services/common services/auditlog services/custody stackctl
+      - run: mypy services/common services/auditlog services/custody services/settlement services/recon stackctl
       - run: pytest
-      - name: demo
+      - name: sim demo
         run: |
-          make demo | tee demo.out
+          python -m stackctl demo --mode sim | tee demo.out
           grep -E "RECON: ALL MATCHED|AUDIT: CHAIN INTACT" demo.out
-      - name: failure demos
+      - name: sim failure demos
         run: |
-          make demo-failures | tee failures.out
+          python -m stackctl demo-failures --mode sim | tee failures.out
           grep -E "RECON: MISMATCH|UNWIND: COMPLETE|RESTRICTED: SURFACED|COUPON: NO DOUBLE PAYMENT|AUDIT: CHAIN INTACT" failures.out
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - name: compose up
+        run: docker compose up --build -d
+      - name: stack demo
+        run: |
+          python -m stackctl demo | tee demo.out
+          grep -E "RECON: ALL MATCHED|AUDIT: CHAIN INTACT|COUPON: PAID 5 HOLDERS" demo.out
+      - name: stack failure demos
+        run: |
+          python -m stackctl demo-failures | tee failures.out
+          grep -E "RECON: MISMATCH|UNWIND: COMPLETE|RESTRICTED: SURFACED|RECON: ALL MATCHED|COUPON: NO DOUBLE PAYMENT|AUDIT: CHAIN INTACT" failures.out
+      - name: compose logs
+        if: failure()
+        run: docker compose logs
+      - name: compose down
+        if: always()
+        run: docker compose down --volumes
+
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: banned vocabulary
         run: |
           if grep -RInE "revolutionary|seamless|game-changing|unlock|enterprise-grade|bank-grade|battle-tested" README.md ARCHITECTURE.md LIMITATIONS.md ROADMAP.md SECURITY.md CONTRIBUTING.md services stackctl contracts console; then
