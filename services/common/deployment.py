@@ -4,7 +4,6 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -13,6 +12,7 @@ class Deployment:
     rpc_url: str
     addresses: dict[str, str]
     personas: dict[str, str]
+    abi_dir: Path = Path("/deployment/abi")
 
     @classmethod
     def load(cls, path: Path = Path("/deployment/deployment.json")) -> "Deployment":
@@ -31,14 +31,3 @@ def wait_for_deployment(path: Path = Path("/deployment/deployment.json")) -> Dep
             return Deployment.load(path)
         time.sleep(2)
     raise RuntimeError(f"deployment file not found after 60s: {path}")
-
-
-def deployment_payload(addresses: dict[str, str], chain_id: int = 31337) -> dict[str, Any]:
-    from services.common.personas import PERSONAS
-
-    return {
-        "chain_id": chain_id,
-        "rpc_url": "http://anvil:8545",
-        "addresses": addresses,
-        "personas": {name: persona.address for name, persona in PERSONAS.items()},
-    }

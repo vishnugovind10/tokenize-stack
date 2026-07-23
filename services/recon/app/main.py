@@ -2,14 +2,22 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from services.common.deployment import Deployment, wait_for_deployment
 from services.common.state import read_state
 
 app = FastAPI(title="tokenize-stack recon")
+deployment: Deployment | None = None
+
+
+@app.on_event("startup")
+def load_deployment() -> None:
+    global deployment
+    deployment = wait_for_deployment()
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "chain_id": str(deployment.chain_id if deployment else "unknown")}
 
 
 @app.get("/report")

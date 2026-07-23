@@ -11,11 +11,13 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Vishnu Govind" }]
 dependencies = [
+  "eth-account>=0.13,<0.14",
   "fastapi>=0.111",
   "pydantic>=2.7",
   "pyyaml>=6.0",
   "typer>=0.12",
-  "uvicorn>=0.30"
+  "uvicorn>=0.30",
+  "web3>=6.20"
 ]
 
 [project.optional-dependencies]
@@ -46,4 +48,4 @@ target-version = ["py311"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-packages = ["services.common", "services.auditlog", "services.custody", "stackctl"]
+packages = ["services.common", "services.auditlog", "services.custody", "services.settlement", "services.recon", "stackctl"]

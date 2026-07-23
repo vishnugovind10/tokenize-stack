@@ -35,7 +35,11 @@ services:
       --mnemonic-index 0);
       forge script script/Deploy.s.sol:Deploy --rpc-url http://anvil:8545 --broadcast
       --private-key $$ANVIL_KEY_0 &&
-      cp /repo/contracts/out/deployment.json /deployment/deployment.json"
+      cp /repo/contracts/out/deployment.json /deployment/deployment.json &&
+      mkdir -p /deployment/abi &&
+      for contract in ComplianceRegistry RestrictedAssetToken CashToken DvPEscrow CouponDistributor;
+      do cp /repo/contracts/out/$${contract}.sol/$${contract}.json /deployment/abi/$${contract}.json;
+      done"
   auditlog:
     build: .
     command: uvicorn services.auditlog.app.main:app --host 0.0.0.0 --port 8004

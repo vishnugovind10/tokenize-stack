@@ -7,9 +7,17 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from services.common.audit_client import post_event
+from services.common.deployment import Deployment, wait_for_deployment
 from services.common.state import read_state, reset_state, write_state
 
 app = FastAPI(title="tokenize-stack settlement")
+deployment: Deployment | None = None
+
+
+@app.on_event("startup")
+def load_deployment() -> None:
+    global deployment
+    deployment = wait_for_deployment()
 
 
 class TradeIn(BaseModel):
@@ -30,7 +38,7 @@ class CouponIn(BaseModel):
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "chain_id": str(deployment.chain_id if deployment else "unknown")}
 
 
 @app.post("/reset")

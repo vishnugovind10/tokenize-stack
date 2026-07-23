@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from services.common.deployment import Deployment, wait_for_deployment
 from services.common.models import Intent
 from services.custody.policy import Policy
 
@@ -11,6 +12,13 @@ app = FastAPI(title="tokenize-stack custody")
 allowlist = {"investor-a", "investor-b", "issuer"}
 policy = Policy.from_file(Path("services/custody/policies/policy.yaml"))
 pending: dict[str, Intent] = {}
+deployment: Deployment | None = None
+
+
+@app.on_event("startup")
+def load_deployment() -> None:
+    global deployment
+    deployment = wait_for_deployment()
 
 
 @app.get("/policy")
@@ -20,7 +28,7 @@ def get_policy() -> dict[str, object]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "chain_id": str(deployment.chain_id if deployment else "unknown")}
 
 
 @app.post("/sign-intent")
